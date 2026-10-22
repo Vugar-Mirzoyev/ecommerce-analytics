@@ -187,6 +187,12 @@ def get_rfm_segments():
     analyzer.loader.close()
     return df
 
+@st.cache_data
+def get_data_quality():
+    analyzer = get_analyzer()
+    df = analyzer.data_quality()
+    analyzer.loader.close()
+    return df
 
 
 # ─── Header ───────────────────────────────────────────────────────
@@ -311,7 +317,7 @@ st.plotly_chart(fig_vol)
 st.markdown('<p class="section-header">Segment Breakdown</p>', unsafe_allow_html=True)
 
 summary = rfm_df.groupby("segment").agg(
-    Customer_Count=("customer_id", "count"),
+    Customer_Count=("customer_unique_id", "count"),
     Avg_Recency=("recency_days", "mean"),
     Avg_Frequency=("frequency", "mean"),
     Avg_Monetary=("monetary", "mean"),
@@ -332,6 +338,21 @@ st.dataframe(
         "Avg Recency (days)": st.column_config.NumberColumn(format="%.0f"),
         "Avg Frequency": st.column_config.NumberColumn(format="%.1f"),
         "Avg Monetary (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+    },
+)
+
+
+# ─── Data quality ─────────────────────────────────────────────────
+st.markdown('<p class="section-header">Data Quality Checks</p>', unsafe_allow_html=True)
+
+quality_df = get_data_quality().rename(columns={
+    "check": "Check", "rows": "Rows", "why": "Why it matters",
+})
+
+st.dataframe(
+    quality_df, hide_index=True,
+    column_config={
+        "Rows": st.column_config.NumberColumn(format="%d"),
     },
 )
 

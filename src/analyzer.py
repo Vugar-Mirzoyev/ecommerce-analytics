@@ -1,5 +1,52 @@
-import pandas as pd
+import numpy as np
 import os
+
+from src.data_quality import run_checks
+
+
+def _percentile_score(values, higher_is_better=True):
+    """Score values from 1 to 5 by percentile rank.
+
+    Tied values always get the same score, so the result does not depend on row order.
+
+    Args:
+        values: A numeric pandas Series.
+        higher_is_better: If False, the lowest values get score 5.
+
+    Returns:
+        An integer Series with scores 1-5.
+    """
+    score = np.ceil(values.rank(pct=True, method="max") * 5).astype(int).clip(1, 5)
+    return score if higher_is_better else 6 - score
+
+
+def score_rfm(df):
+    """Add RFM scores and a segment label to per-customer RFM values.
+
+    About 97% of Olist customers ordered only once, so frequency quintiles cannot
+    separate them. Frequency is therefore scored on fixed order counts, and customers
+    are first split into repeat and one-time buyers, then by recency + monetary score.
+
+    Args:
+        df: DataFrame with columns recency_days, frequency, monetary.
+
+    Returns:
+        A copy of df with R, F, M, rfm_total and segment columns.
+    """
+    df = df.copy()
+    df["R"] = _percentile_score(df["recency_days"], higher_is_better=False)
+    df["F"] = np.select([df["frequency"] >= 3, df["frequency"] == 2], [5, 3], default=1)
+    df["M"] = _percentile_score(df["monetary"])
+    df["rfm_total"] = df["R"] + df["F"] + df["M"]
+
+    repeat_buyer = df["frequency"] >= 2
+    high_value = df["R"] + df["M"] >= 7
+    df["segment"] = np.select(
+        [repeat_buyer & high_value, repeat_buyer, high_value],
+        ["Champions", "Loyal Customers", "Potential"],
+        default="Hibernating",
+    )
+    return df
 
 
 class SalesAnalyzer:
@@ -46,31 +93,18 @@ class SalesAnalyzer:
         """Customer segmentation via RFM (Recency, Frequency, Monetary) analysis.
 
         Returns:
-            DataFrame with RFM scores and customer segment labels.
+            DataFrame with one row per customer_unique_id, RFM scores and segment labels.
         """
         sql = self._read_sql_file("rfm_analysis.sql")
-        df = self.loader.query(sql)
+        return score_rfm(self.loader.query(sql))
 
-        # Score each metric from 1 to 5
-        df["R"] = pd.qcut(df["recency_days"], q=5, labels=[5, 4, 3, 2, 1])
-        df["F"] = pd.qcut(df["frequency"].rank(method="first"), q=5, labels=[1, 2, 3, 4, 5])
-        df["M"] = pd.qcut(df["monetary"], q=5, labels=[1, 2, 3, 4, 5])
+    def data_quality(self):
+        """Run the data quality checks the queries depend on.
 
-        df["rfm_total"] = df["R"].astype(int) + df["F"].astype(int) + df["M"].astype(int)
-
-        # Assign customer segments
-        def segment(score):
-            if score >= 13:
-                return "Champions"
-            elif score >= 10:
-                return "Loyal Customers"
-            elif score >= 7:
-                return "Potential"
-            else:
-                return "Hibernating"
-
-        df["segment"] = df["rfm_total"].apply(segment)
-        return df
+        Returns:
+            DataFrame with columns: check, rows, why.
+        """
+        return run_checks(self.loader)
 
     def summary_metrics(self):
         """Compute high-level summary metrics for the dashboard.

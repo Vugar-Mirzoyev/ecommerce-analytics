@@ -1,12 +1,22 @@
 -- Summary Metrics
--- Returns high-level KPIs: total orders, total revenue, unique customers, average rating.
+-- Returns high-level KPIs for delivered orders: total orders, total revenue,
+-- unique customers, average rating.
+--
+-- Each KPI is computed on its own table. Joining payments and reviews in one query
+-- repeats an order once per payment and per review, and drops orders without a review.
 
+WITH delivered AS (
+    SELECT o.order_id, c.customer_unique_id
+    FROM orders o
+    JOIN customers c ON o.customer_id = c.customer_id
+    WHERE o.order_status = 'delivered'
+)
 SELECT
-    COUNT(DISTINCT o.order_id)     AS total_orders,
-    ROUND(SUM(p.payment_value), 2) AS total_revenue,
-    COUNT(DISTINCT o.customer_id)  AS total_customers,
-    ROUND(AVG(r.review_score), 2)  AS avg_rating
-FROM orders o
-JOIN payments p ON o.order_id = p.order_id
-JOIN reviews r  ON o.order_id = r.order_id
-WHERE o.order_status = 'delivered';
+    (SELECT COUNT(*) FROM delivered) AS total_orders,
+    (SELECT ROUND(SUM(p.payment_value), 2)
+       FROM payments p
+       JOIN delivered d ON p.order_id = d.order_id) AS total_revenue,
+    (SELECT COUNT(DISTINCT customer_unique_id) FROM delivered) AS total_customers,
+    (SELECT ROUND(AVG(r.review_score), 2)
+       FROM reviews r
+       JOIN delivered d ON r.order_id = d.order_id) AS avg_rating;
