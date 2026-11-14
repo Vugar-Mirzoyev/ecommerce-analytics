@@ -1,0 +1,9 @@
+# requirements.txt pins Streamlit and Plotly to exact versions. Dependabot
+# compares those pins with GitHub's advisory database and opens a pull request
+# when one of them has a published vulnerability or a newer release.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
